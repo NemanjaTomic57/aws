@@ -123,13 +123,13 @@ resource "aws_vpc_security_group_egress_rule" "allow_vpc_traffic" {
 
 resource "aws_vpc_security_group_ingress_rule" "allow_pod_traffic" {
   security_group_id = aws_security_group.private.id
-  cidr_ipv4         = "10.10.0.0/16"
+  cidr_ipv4         = "10.0.0.0/8"
   ip_protocol       = "-1"
 }
 
 resource "aws_vpc_security_group_egress_rule" "allow_pod_traffic" {
   security_group_id = aws_security_group.private.id
-  cidr_ipv4         = "10.10.0.0/16"
+  cidr_ipv4         = "10.0.0.0/8"
   ip_protocol       = "-1"
 }
 

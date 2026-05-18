@@ -1,0 +1,44 @@
+---
+- name: Initialize first control plane
+  hosts: controlplanes
+  become: true
+  vars:
+    user: admin
+
+  tasks:
+    - name: Join other controlplanes
+      ansible.builtin.shell: >
+        kubeadm join 192.168.72.100:6221 --token bixlv6.q8g1i7mjohvpx90k
+        --discovery-token-ca-cert-hash sha256:80ad0c020e495266555aea27440e05c29d10d69f4e5c8b6a7a036b8ad94a54b0
+        --control-plane --certificate-key 0d8a6dded03cdd25acf0b63f984a45d5a4dc83b8e4de9161e9e7e889b0125663
+      args:
+        creates: /etc/kubernetes/kubelet.conf
+
+    - name: Ensure .kube directory exists
+      ansible.builtin.file:
+        path: "/home/{{ user }}/.kube"
+        state: directory
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: "0755"
+
+    - name: Copy kubeconfig
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: "/home/{{ user }}/.kube/config"
+        remote_src: true
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: "0644"
+
+- name: Join worker nodes
+  hosts: workers
+  become: true
+
+  tasks:
+    - name: Join worker nodes to cluster
+      ansible.builtin.shell: |
+        kubeadm join 192.168.72.100:6221 --token bixlv6.q8g1i7mjohvpx90k \
+          --discovery-token-ca-cert-hash sha256:80ad0c020e495266555aea27440e05c29d10d69f4e5c8b6a7a036b8ad94a54b0
+      args:
+        creates: /etc/kubernetes/kubelet.conf

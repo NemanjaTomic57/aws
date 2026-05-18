@@ -32,7 +32,11 @@ def get_terraform_output(state_file: str) -> tuple[str, list[str], list[str]]:
 def build_inventory(bastion_ip: str, controlplane_ips: list[str], worker_ips: list[str], ansible_user: str) -> str:
     """Build the Ansible inventory file content."""
 
-    proxy_args = f"-o StrictHostKeyChecking=off -o ProxyJump={ansible_user}@{bastion_ip}"
+    proxy_args = (
+        '-o StrictHostKeyChecking=no '
+        f'-o ProxyCommand="ssh -o StrictHostKeyChecking=no '
+        f'-W %h:%p {ansible_user}@{bastion_ip}"'
+    )
 
     lines = ["[controlplanes]"]
     lines += [f"controlplane{i} ansible_host={ip}" for i, ip in enumerate(controlplane_ips)]

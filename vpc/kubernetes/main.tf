@@ -121,6 +121,26 @@ resource "aws_vpc_security_group_egress_rule" "allow_vpc_traffic" {
   ip_protocol       = "-1"
 }
 
+resource "aws_vpc_security_group_ingress_rule" "allow_pod_traffic" {
+  security_group_id = aws_security_group.private.id
+  cidr_ipv4         = "10.10.0.0/16"
+  ip_protocol       = "-1"
+}
+
+resource "aws_vpc_security_group_egress_rule" "allow_pod_traffic" {
+  security_group_id = aws_security_group.private.id
+  cidr_ipv4         = "10.10.0.0/16"
+  ip_protocol       = "-1"
+}
+
+resource "aws_vpc_security_group_egress_rule" "allow_https" {
+  security_group_id = aws_security_group.private.id
+  cidr_ipv4         = "0.0.0.0/0"
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+}
+
 ##############################################
 # EC2
 ##############################################

@@ -1,0 +1,20 @@
+[controlplanes]
+controlplane0 ansible_host=192.168.65.89
+controlplane1 ansible_host=192.168.67.211
+controlplane2 ansible_host=192.168.66.100
+
+[workers]
+worker0 ansible_host=192.168.67.251
+worker1 ansible_host=192.168.67.120
+worker2 ansible_host=192.168.65.156
+
+[nodes:children]
+controlplanes
+workers
+
+[nodes:vars]
+ansible_user=admin
+ansible_ssh_common_args=-o StrictHostKeyChecking=off -o ProxyJump=admin@100.54.97.55
+
+apiserver_vip=192.168.72.100
+apiserver_dest_port=6221

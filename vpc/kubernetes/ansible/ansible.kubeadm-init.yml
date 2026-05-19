@@ -7,10 +7,10 @@
 
   tasks:
     - name: Join other controlplanes
-      ansible.builtin.shell: >
-        kubeadm join 192.168.72.100:6221 --token bixlv6.q8g1i7mjohvpx90k
-        --discovery-token-ca-cert-hash sha256:80ad0c020e495266555aea27440e05c29d10d69f4e5c8b6a7a036b8ad94a54b0
-        --control-plane --certificate-key 0d8a6dded03cdd25acf0b63f984a45d5a4dc83b8e4de9161e9e7e889b0125663
+      ansible.builtin.shell: |
+        kubeadm join 192.168.72.100:6221 --token onadma.1r5in15lmwaefdca \
+        --discovery-token-ca-cert-hash sha256:9d57e692442f80bcc63fc2dd51a6b1012ea0b57e66f019c767df7f3281eedb74 \
+        --control-plane --certificate-key 0a8a4b429959b26f762b7afd5eefae1f1fb7610e23ca5d9cd83695ab1ff2bd16
       args:
         creates: /etc/kubernetes/kubelet.conf
 
@@ -38,7 +38,7 @@
   tasks:
     - name: Join worker nodes to cluster
       ansible.builtin.shell: |
-        kubeadm join 192.168.72.100:6221 --token bixlv6.q8g1i7mjohvpx90k \
-          --discovery-token-ca-cert-hash sha256:80ad0c020e495266555aea27440e05c29d10d69f4e5c8b6a7a036b8ad94a54b0
+        kubeadm join 192.168.72.100:6221 --token onadma.1r5in15lmwaefdca \
+          --discovery-token-ca-cert-hash sha256:9d57e692442f80bcc63fc2dd51a6b1012ea0b57e66f019c767df7f3281eedb74
       args:
         creates: /etc/kubernetes/kubelet.conf

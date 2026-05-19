@@ -8,9 +8,9 @@
   tasks:
     - name: Join other controlplanes
       ansible.builtin.shell: |
-        kubeadm join 192.168.72.100:6221 --token onadma.1r5in15lmwaefdca \
-        --discovery-token-ca-cert-hash sha256:9d57e692442f80bcc63fc2dd51a6b1012ea0b57e66f019c767df7f3281eedb74 \
-        --control-plane --certificate-key 0a8a4b429959b26f762b7afd5eefae1f1fb7610e23ca5d9cd83695ab1ff2bd16
+        kubeadm join 192.168.72.100:6221 --token <TOKEN> \
+        --discovery-token-ca-cert-hash <CA_CERT_HASH> \
+        --control-plane --certificate-key <CERTIFICATE_KEY>
       args:
         creates: /etc/kubernetes/kubelet.conf
 
@@ -38,7 +38,7 @@
   tasks:
     - name: Join worker nodes to cluster
       ansible.builtin.shell: |
-        kubeadm join 192.168.72.100:6221 --token onadma.1r5in15lmwaefdca \
-          --discovery-token-ca-cert-hash sha256:9d57e692442f80bcc63fc2dd51a6b1012ea0b57e66f019c767df7f3281eedb74
+        kubeadm join 192.168.72.100:6221 --token <TOKEN> \
+          --discovery-token-ca-cert-hash <CA_CERT_HASH>
       args:
         creates: /etc/kubernetes/kubelet.conf

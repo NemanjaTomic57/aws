@@ -1,6 +1,4 @@
-#!/bin/bash
-
-set -e
+#!/bin/bash -eux
 
 # Check if argument is provided
 if [ -z "$1" ]; then

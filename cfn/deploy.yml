@@ -1,0 +1,220 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Static website hosted in S3 behind CloudFront with multiple subpages
+
+Resources:
+
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-oac"
+        Description: Origin Access Control for S3
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt WebsiteBucket.RegionalDomainName
+            S3OriginConfig: {}
+            OriginAccessControlId: !GetAtt CloudFrontOAC.Id
+
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+
+          AllowedMethods:
+            - GET
+            - HEAD
+
+          CachedMethods:
+            - GET
+            - HEAD
+
+          ForwardedValues:
+            QueryString: false
+
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action:
+              - s3:GetObject
+            Resource: !Sub "${WebsiteBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+
+  WebsiteContentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+      Policies:
+        - PolicyName: S3WriteContent
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub "${WebsiteBucket.Arn}/*"
+
+  WebsiteContentFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 60
+      Role: !GetAtt WebsiteContentRole.Arn
+
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+
+          s3 = boto3.client('s3')
+
+          PAGES = {
+              "index.html": """
+              <html>
+              <head><title>Home</title></head>
+              <body>
+                <h1>Welcome</h1>
+                <nav>
+                  <a href="/about.html">About</a> |
+                  <a href="/products.html">Products</a> |
+                  <a href="/contact.html">Contact</a>
+                </nav>
+              </body>
+              </html>
+              """,
+
+              "about.html": """
+              <html>
+              <head><title>About</title></head>
+              <body>
+                <h1>About Us</h1>
+                <a href="/">Home</a>
+              </body>
+              </html>
+              """,
+
+              "products.html": """
+              <html>
+              <head><title>Products</title></head>
+              <body>
+                <h1>Products</h1>
+                <a href="/">Home</a>
+              </body>
+              </html>
+              """,
+
+              "contact.html": """
+              <html>
+              <head><title>Contact</title></head>
+              <body>
+                <h1>Contact</h1>
+                <a href="/">Home</a>
+              </body>
+              </html>
+              """
+          }
+
+          def handler(event, context):
+              bucket = event['ResourceProperties']['BucketName']
+
+              try:
+                  if event['RequestType'] in ['Create', 'Update']:
+                      for key, body in PAGES.items():
+                          s3.put_object(
+                              Bucket=bucket,
+                              Key=key,
+                              Body=body,
+                              ContentType='text/html'
+                          )
+
+                  elif event['RequestType'] == 'Delete':
+                      for key in PAGES.keys():
+                          try:
+                              s3.delete_object(Bucket=bucket, Key=key)
+                          except Exception:
+                              pass
+
+                  cfnresponse.send(
+                      event,
+                      context,
+                      cfnresponse.SUCCESS,
+                      {}
+                  )
+
+              except Exception as e:
+                  print(e)
+                  cfnresponse.send(
+                      event,
+                      context,
+                      cfnresponse.FAILED,
+                      {}
+                  )
+
+  WebsiteContent:
+    Type: Custom::WebsiteContent
+    DependsOn:
+      - WebsiteBucket
+    Properties:
+      ServiceToken: !GetAtt WebsiteContentFunction.Arn
+      BucketName: !Ref WebsiteBucket
+
+Outputs:
+
+  CloudFrontURL:
+    Description: Website URL
+    Value: !Sub "https://${CloudFrontDistribution.DomainName}"
+
+  BucketName:
+    Description: S3 Bucket
+    Value: !Ref WebsiteBucket

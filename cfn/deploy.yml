@@ -1,87 +1,41 @@
----
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Static website hosted in S3 behind CloudFront with multiple subpages
+Description: >
+  EC2-hosted web application that calls a Lambda function via API Gateway
+  to display the visitor's IP address.
+
+Parameters:
+  InstanceType:
+    Type: String
+    Default: t3.micro
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
 
 Resources:
 
-  WebsiteBucket:
-    Type: AWS::S3::Bucket
+  #######################################
+  # Security Group
+  #######################################
+  WebSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
     Properties:
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
+      GroupDescription: Allow HTTP access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
 
-  CloudFrontOAC:
-    Type: AWS::CloudFront::OriginAccessControl
-    Properties:
-      OriginAccessControlConfig:
-        Name: !Sub "${AWS::StackName}-oac"
-        Description: Origin Access Control for S3
-        OriginAccessControlOriginType: s3
-        SigningBehavior: always
-        SigningProtocol: sigv4
-
-  CloudFrontDistribution:
-    Type: AWS::CloudFront::Distribution
-    Properties:
-      DistributionConfig:
-        Enabled: true
-        DefaultRootObject: index.html
-
-        Origins:
-          - Id: S3Origin
-            DomainName: !GetAtt WebsiteBucket.RegionalDomainName
-            S3OriginConfig: {}
-            OriginAccessControlId: !GetAtt CloudFrontOAC.Id
-
-        DefaultCacheBehavior:
-          TargetOriginId: S3Origin
-          ViewerProtocolPolicy: redirect-to-https
-          Compress: true
-
-          AllowedMethods:
-            - GET
-            - HEAD
-
-          CachedMethods:
-            - GET
-            - HEAD
-
-          ForwardedValues:
-            QueryString: false
-
-        CustomErrorResponses:
-          - ErrorCode: 403
-            ResponseCode: 200
-            ResponsePagePath: /index.html
-
-        ViewerCertificate:
-          CloudFrontDefaultCertificate: true
-
-  WebsiteBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref WebsiteBucket
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: AllowCloudFrontRead
-            Effect: Allow
-            Principal:
-              Service: cloudfront.amazonaws.com
-            Action:
-              - s3:GetObject
-            Resource: !Sub "${WebsiteBucket.Arn}/*"
-            Condition:
-              StringEquals:
-                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
-
-  WebsiteContentRole:
+  #######################################
+  # Lambda IAM Role
+  #######################################
+  LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub "${AWS::StackName}-lambda-role"
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
@@ -93,128 +47,174 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
 
-      Policies:
-        - PolicyName: S3WriteContent
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:PutObject
-                  - s3:DeleteObject
-                Resource: !Sub "${WebsiteBucket.Arn}/*"
-
-  WebsiteContentFunction:
+  #######################################
+  # Lambda Function
+  #######################################
+  IpLookupFunction:
     Type: AWS::Lambda::Function
     Properties:
+      FunctionName: !Sub "${AWS::StackName}-ip-lookup"
       Runtime: python3.12
-      Handler: index.handler
-      Timeout: 60
-      Role: !GetAtt WebsiteContentRole.Arn
+      Handler: index.lambda_handler
+      Timeout: 10
+      Role: !GetAtt LambdaExecutionRole.Arn
 
       Code:
         ZipFile: |
-          import boto3
-          import cfnresponse
+          import json
 
-          s3 = boto3.client('s3')
+          def lambda_handler(event, context):
+              headers = event.get("headers", {})
 
-          PAGES = {
-              "index.html": """
-              <html>
-              <head><title>Home</title></head>
-              <body>
-                <h1>Welcome</h1>
-                <nav>
-                  <a href="/about.html">About</a> |
-                  <a href="/products.html">Products</a> |
-                  <a href="/contact.html">Contact</a>
-                </nav>
-              </body>
-              </html>
-              """,
+              ip = (
+                  headers.get("X-Forwarded-For", "").split(",")[0].strip()
+                  or event.get("requestContext", {})
+                         .get("http", {})
+                         .get("sourceIp", "unknown")
+              )
 
-              "about.html": """
-              <html>
-              <head><title>About</title></head>
-              <body>
-                <h1>About Us</h1>
-                <a href="/">Home</a>
-              </body>
-              </html>
-              """,
+              return {
+                  "statusCode": 200,
+                  "headers": {
+                      "Content-Type": "application/json",
+                      "Access-Control-Allow-Origin": "*"
+                  },
+                  "body": json.dumps({
+                      "ip": ip
+                  })
+              }
 
-              "products.html": """
-              <html>
-              <head><title>Products</title></head>
-              <body>
-                <h1>Products</h1>
-                <a href="/">Home</a>
-              </body>
-              </html>
-              """,
-
-              "contact.html": """
-              <html>
-              <head><title>Contact</title></head>
-              <body>
-                <h1>Contact</h1>
-                <a href="/">Home</a>
-              </body>
-              </html>
-              """
-          }
-
-          def handler(event, context):
-              bucket = event['ResourceProperties']['BucketName']
-
-              try:
-                  if event['RequestType'] in ['Create', 'Update']:
-                      for key, body in PAGES.items():
-                          s3.put_object(
-                              Bucket=bucket,
-                              Key=key,
-                              Body=body,
-                              ContentType='text/html'
-                          )
-
-                  elif event['RequestType'] == 'Delete':
-                      for key in PAGES.keys():
-                          try:
-                              s3.delete_object(Bucket=bucket, Key=key)
-                          except Exception:
-                              pass
-
-                  cfnresponse.send(
-                      event,
-                      context,
-                      cfnresponse.SUCCESS,
-                      {}
-                  )
-
-              except Exception as e:
-                  print(e)
-                  cfnresponse.send(
-                      event,
-                      context,
-                      cfnresponse.FAILED,
-                      {}
-                  )
-
-  WebsiteContent:
-    Type: Custom::WebsiteContent
-    DependsOn:
-      - WebsiteBucket
+  #######################################
+  # API Gateway HTTP API
+  #######################################
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
     Properties:
-      ServiceToken: !GetAtt WebsiteContentFunction.Arn
-      BucketName: !Ref WebsiteBucket
+      Name: UserIpApi
+      ProtocolType: HTTP
+
+  LambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt IpLookupFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  ApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "GET /ip"
+      Target: !Join
+        - /
+        - - integrations
+          - !Ref LambdaIntegration
+
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: "$default"
+      AutoDeploy: true
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref IpLookupFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
+
+  #######################################
+  # EC2 Instance
+  #######################################
+  WebServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+
+      SecurityGroupIds:
+        - !Ref WebSecurityGroup
+
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 8
+            VolumeType: gp3
+            DeleteOnTermination: true
+
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          dnf update -y
+          dnf install -y nginx
+
+          cat > /usr/share/nginx/html/index.html <<EOF
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Welcome</title>
+              <style>
+                  body {
+                      font-family: Arial, sans-serif;
+                      text-align: center;
+                      margin-top: 100px;
+                  }
+
+                  .card {
+                      display: inline-block;
+                      padding: 30px;
+                      border-radius: 10px;
+                      box-shadow: 0 0 10px rgba(0,0,0,.15);
+                  }
+
+                  #ip {
+                      font-size: 24px;
+                      font-weight: bold;
+                      color: #0066cc;
+                  }
+              </style>
+          </head>
+          <body>
+
+              <div class="card">
+                  <h1>Welcome to the Demo Application</h1>
+                  <p>Your public IP address is:</p>
+                  <p id="ip">Loading...</p>
+              </div>
+
+              <script>
+                  fetch('${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/ip')
+                    .then(response => response.json())
+                    .then(data => {
+                        document.getElementById('ip').innerText = data.ip;
+                    })
+                    .catch(error => {
+                        document.getElementById('ip').innerText =
+                          'Unable to determine IP';
+                        console.error(error);
+                    });
+              </script>
+
+          </body>
+          </html>
+          EOF
+
+          systemctl enable nginx
+          systemctl start nginx
 
 Outputs:
 
-  CloudFrontURL:
-    Description: Website URL
-    Value: !Sub "https://${CloudFrontDistribution.DomainName}"
+  WebsiteURL:
+    Description: URL of the web application
+    Value: !Sub "http://${WebServer.PublicIp}"
 
-  BucketName:
-    Description: S3 Bucket
-    Value: !Ref WebsiteBucket
+  ApiEndpoint:
+    Description: API Gateway endpoint
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/ip"
+
+  InstancePublicIp:
+    Description: Public IP of EC2 instance
+    Value: !GetAtt WebServer.PublicIp

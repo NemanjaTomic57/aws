@@ -1,0 +1,162 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  CommitFlow EC2 infrastructure running Docker Compose on Amazon Linux 2023.
+
+Parameters:
+
+  InstanceType:
+    Type: String
+    Default: t3.small
+
+  KeyPair:
+    Type: AWS:EC2:KeyPair:KeyName
+    Description: Existing EC2 Key Pair
+
+  GitRepository:
+    Type: String
+    Default: https://github.com/NemanjaTomic57/commitflow.git
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Resources:
+
+# -----------------------------
+# Networking
+# -----------------------------
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.100.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: eu-central-1a
+      VpcId: !Ref VPC
+      CidrBlocK: 10.100.1.0/24
+      MapPublicIpOnLaunch: true
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref RouteTable
+      GatewayId: !Ref InternetGateway
+      DestinationCidrBlock: 0.0.0.0/0
+
+  RouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref PublicSubnet
+
+# -----------------------------
+# Networking
+# -----------------------------
+
+  CommitFlowSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: CommitFlow EC2 Security Group
+      VpcId: !Ref VPC
+
+      SecurityGroupIngress:
+
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+
+      SecurityGroupEgress:
+        
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+# -----------------------------
+# EC2
+# -----------------------------
+
+  CommitFlowInstance:
+    Type: AWS::EC2::Instance
+
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT20M
+        Count: 1
+
+    Properties:
+
+      ImageId: !Ref LatestAmiId
+
+      InstanceType: !Ref InstanceType
+
+      KeyName: !Ref KeyPair
+
+      NetworkInterface:
+        - DeviceIndex: "0"
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - !Ref CommitFlowSecurityGroup
+          SubnetId: !Ref PublicSubnet
+
+      Tags:
+        - Key: Name
+          Value: CommitFlow
+
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -eux
+
+          dnf update -y
+
+          dnf install -y aws-cfn-bootstrap
+
+          /opt/aws/bin/cfn-init \
+            -v \
+            --stack ${AWS::StackName}
+            --resource CommitFlowInstance \
+            --region ${AWS::Region}
+
+          EXIT_CODE=$?
+
+          /opt/aws/bin/cfn-signal \
+            --exit-code $EXIT_CODE \
+            --stack ${AWS::StackName} \
+            --resource CommitFlowInstance \
+            --region ${AWS::Region}
+
+
+
+Outputs:
+  
+  PublicIP:
+    Value: !GetAtt CommitFlowInstance.PublicIp
+
+  PublicDNS:
+    Value: !GetAtt CommitFlowInstance.PublicDnsName

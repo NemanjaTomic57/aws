@@ -10,16 +10,17 @@ Parameters:
     Default: t3.small
 
   KeyPair:
-    Type: AWS:EC2:KeyPair:KeyName
+    Type: AWS::EC2::KeyPair::KeyName
     Description: Existing EC2 Key Pair
 
   GitRepository:
     Type: String
     Default: https://github.com/NemanjaTomic57/commitflow.git
 
-  LatestAmiId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  AmiId:
+    Type: String
+    Default: ami-0303e2e4a29f041a3
+    Description: Ubuntu 26.04 LTS AMI ID for eu-central-1
 
 Resources:
 
@@ -48,7 +49,7 @@ Resources:
     Properties:
       AvailabilityZone: eu-central-1a
       VpcId: !Ref VPC
-      CidrBlocK: 10.100.1.0/24
+      CidrBlock: 10.100.1.0/24
       MapPublicIpOnLaunch: true
 
   RouteTable:
@@ -71,7 +72,7 @@ Resources:
       SubnetId: !Ref PublicSubnet
 
 # -----------------------------
-# Networking
+# Security Group
 # -----------------------------
 
   CommitFlowSecurityGroup:
@@ -94,64 +95,105 @@ Resources:
 
       SecurityGroupEgress:
         
-        - IpProtocol: -1
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
           CidrIp: 0.0.0.0/0
 
 # -----------------------------
 # EC2
 # -----------------------------
 
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
   CommitFlowInstance:
     Type: AWS::EC2::Instance
 
     CreationPolicy:
       ResourceSignal:
-        Timeout: PT20M
+        Timeout: PT5M
         Count: 1
 
     Properties:
-
-      ImageId: !Ref LatestAmiId
-
+      ImageId: !Ref AmiId
       InstanceType: !Ref InstanceType
-
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds: [!Ref CommitFlowSecurityGroup]
+      SubnetId: !Ref PublicSubnet
       KeyName: !Ref KeyPair
-
-      NetworkInterface:
-        - DeviceIndex: "0"
-          AssociatePublicIpAddress: true
-          GroupSet:
-            - !Ref CommitFlowSecurityGroup
-          SubnetId: !Ref PublicSubnet
-
       Tags:
         - Key: Name
           Value: CommitFlow
-
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
           set -eux
-
           dnf update -y
-
           dnf install -y aws-cfn-bootstrap
-
           /opt/aws/bin/cfn-init \
             -v \
-            --stack ${AWS::StackName}
+            --stack ${AWS::StackName} \
             --resource CommitFlowInstance \
             --region ${AWS::Region}
-
           EXIT_CODE=$?
-
           /opt/aws/bin/cfn-signal \
             --exit-code $EXIT_CODE \
             --stack ${AWS::StackName} \
             --resource CommitFlowInstance \
             --region ${AWS::Region}
 
+    Metadata:
+      'AWS::CloudFormation::Init':
+        config:
+          commands:
+            install_docker:
+              command: |
+                # Add Docker's official GPG key:
+                apt update
+                apt install -y git ca-certificates curl
+                install -m 0755 -d /etc/apt/keyrings
+                curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+                chmod a+r /etc/apt/keyrings/docker.asc
 
+                # Add the repository to Apt sources:
+                tee /etc/apt/sources.list.d/docker.sources <<EOF
+                Types: deb
+                URIs: https://download.docker.com/linux/ubuntu
+                Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+                Components: stable
+                Architectures: $(dpkg --print-architecture)
+                Signed-By: /etc/apt/keyrings/docker.asc
+                EOF
+
+                apt update
+                
+                apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            enable_docker:
+              command: |
+                systemctl enable docker
+                systemctl start docker
+            add_user:
+              command: |
+                usermod -aG docker ubuntu
 
 Outputs:
   

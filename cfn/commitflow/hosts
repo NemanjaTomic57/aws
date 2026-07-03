@@ -1,0 +1,6 @@
+[all]
+3.122.235.188 ansible_user=ubuntu
+
+[all:vars]
+ansible_ssh_private_key_file=/home/ntomic/.ssh/aws.pem
+ansible_ssh_common_args="-o StrictHostKeyChecking=no"

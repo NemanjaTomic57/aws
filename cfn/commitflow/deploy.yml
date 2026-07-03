@@ -143,57 +143,6 @@ Resources:
       Tags:
         - Key: Name
           Value: CommitFlow
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          set -eux
-          dnf update -y
-          dnf install -y aws-cfn-bootstrap
-          /opt/aws/bin/cfn-init \
-            -v \
-            --stack ${AWS::StackName} \
-            --resource CommitFlowInstance \
-            --region ${AWS::Region}
-          EXIT_CODE=$?
-          /opt/aws/bin/cfn-signal \
-            --exit-code $EXIT_CODE \
-            --stack ${AWS::StackName} \
-            --resource CommitFlowInstance \
-            --region ${AWS::Region}
-
-    Metadata:
-      'AWS::CloudFormation::Init':
-        config:
-          commands:
-            install_docker:
-              command: |
-                # Add Docker's official GPG key:
-                apt update
-                apt install -y git ca-certificates curl
-                install -m 0755 -d /etc/apt/keyrings
-                curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-                chmod a+r /etc/apt/keyrings/docker.asc
-
-                # Add the repository to Apt sources:
-                tee /etc/apt/sources.list.d/docker.sources <<EOF
-                Types: deb
-                URIs: https://download.docker.com/linux/ubuntu
-                Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
-                Components: stable
-                Architectures: $(dpkg --print-architecture)
-                Signed-By: /etc/apt/keyrings/docker.asc
-                EOF
-
-                apt update
-                
-                apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-            enable_docker:
-              command: |
-                systemctl enable docker
-                systemctl start docker
-            add_user:
-              command: |
-                usermod -aG docker ubuntu
 
 Outputs:
   

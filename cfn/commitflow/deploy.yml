@@ -7,15 +7,11 @@ Parameters:
 
   InstanceType:
     Type: String
-    Default: t3.small
+    Default: t3.large
 
   KeyPair:
     Type: AWS::EC2::KeyPair::KeyName
     Description: Existing EC2 Key Pair
-
-  GitRepository:
-    Type: String
-    Default: https://github.com/NemanjaTomic57/commitflow.git
 
   AmiId:
     Type: String
@@ -99,44 +95,22 @@ Resources:
           FromPort: 443
           ToPort: 443
           CidrIp: 0.0.0.0/0
+        
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
 
 # -----------------------------
 # EC2
 # -----------------------------
 
-  InstanceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - ec2.amazonaws.com
-            Action:
-              - sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-
-  InstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      Roles:
-        - !Ref InstanceRole
-
   CommitFlowInstance:
     Type: AWS::EC2::Instance
-
-    CreationPolicy:
-      ResourceSignal:
-        Timeout: PT5M
-        Count: 1
 
     Properties:
       ImageId: !Ref AmiId
       InstanceType: !Ref InstanceType
-      IamInstanceProfile: !Ref InstanceProfile
       SecurityGroupIds: [!Ref CommitFlowSecurityGroup]
       SubnetId: !Ref PublicSubnet
       KeyName: !Ref KeyPair

@@ -1,0 +1,2 @@
+CREATE DATABASE grafana OWNER postgres;
+GRANT ALL PRIVILEGES ON DATABASE grafana TO postgres;

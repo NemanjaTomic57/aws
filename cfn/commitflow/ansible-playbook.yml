@@ -1,0 +1,30 @@
+---
+- name: Install Go
+  hosts: all
+  vars:
+    go_version: 1.26.3
+    go_checksum: 2b2cfc7148493da5e73981bffbf3353af381d5f93e789c82c79aff64962eb556
+
+  tasks:
+    - name: Download Go
+      ansible.builtin.get_url:
+        url: "https://go.dev/dl/go{{ go_version }}.linux-amd64.tar.gz"
+        dest: /tmp/go.tar.gz
+        mode: "0644"
+        checksum: "sha256:{{ go_checksum }}"
+
+    - name: Extract Go
+      become: true
+      ansible.builtin.unarchive:
+        src: /tmp/go.tar.gz
+        dest: /usr/local
+        remote_src: true
+
+    - name: Add Go to PATH
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/profile.d/go.sh
+        content: |
+          export PATH=$PATH:/usr/local/go/bin
+          export PATH=$PATH:/home/vagrant/go/bin
+        mode: "0555"

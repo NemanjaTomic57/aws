@@ -12,11 +12,12 @@ Parameters:
   KeyPair:
     Type: AWS::EC2::KeyPair::KeyName
     Description: Existing EC2 Key Pair
+    Default: aws
 
   AmiId:
     Type: String
-    Default: ami-0303e2e4a29f041a3
-    Description: Ubuntu 26.04 LTS AMI ID for eu-central-1
+    Description: Debian Trixie AMI ID for eu-central-1 (custom)
+    Default: ami-0c5b8b69f48b05e46
 
 Resources:
 
@@ -92,13 +93,13 @@ Resources:
       SecurityGroupEgress:
         
         - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
+          FromPort: 80
+          ToPort: 80
           CidrIp: 0.0.0.0/0
         
         - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
+          FromPort: 443
+          ToPort: 443
           CidrIp: 0.0.0.0/0
 
 # -----------------------------

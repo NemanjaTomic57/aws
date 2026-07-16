@@ -5,9 +5,9 @@ datasources:
   - name: Postgres
     type: postgres
     url: db:5432
-    user: {{ POSTGRES_USER }}
+    user: {{ postgres_user }}
     secureJsonData:
-      password: {{ POSTGRES_PASSWORD }}
+      password: {{ postgres_password }}
     jsonData:
       database: commitflow
       sslmode: 'disable'  # disable/require/verify-ca/verify-full

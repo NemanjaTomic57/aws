@@ -24,8 +24,10 @@ ansible-playbook \
   -i ansible-inventory.yml \
   ansible-playbook.yml \
   --vault-password-file <(
-    ANSIBLE_VAULT_PASSWORD=$(aws ssm get-parameter \
+    aws ssm get-parameter \
       --name /commitflow/ansible-vault-password \
       --query "Parameter.Value" \
-      --output text --with-decryption)
+      --output text --with-decryption
     )
+
+echo "Connect to Grafana WebUI via http://${IP}:3000"

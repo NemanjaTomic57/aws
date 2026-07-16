@@ -1,7 +1,9 @@
 ---
 - name: Test ansible-vault
   hosts: all
-
+  vars:
+    ecr_registry: 761018874759.dkr.ecr.eu-central-1.amazonaws.com
+    project_dir: /opt/commitflow
   vars_files:
     - ./vars/vars.yml
     - ./vars/vault.yml
@@ -17,32 +19,57 @@
         group: admin
         mode: "0755"
       loop:
-        - /opt/commitflow
-        - /opt/commitflow/postgres
-        - /opt/commitflow/grafana
-        - /opt/commitflow/grafana/dashboards
-        - /opt/commitflow/grafana/datasources
+        - "{{ project_dir }}"
+        - "{{ project_dir }}/postgres"
+        - "{{ project_dir }}/grafana"
+        - "{{ project_dir }}/grafana/dashboards"
+        - "{{ project_dir }}/grafana/datasources"
 
     - name: Copy Postgres configuration
       copy:
         src: postgres/init.sql
-        dest: /opt/commitflow/postgres/init.sql
+        dest: "{{ project_dir }}/postgres/init.sql"
         mode: "0444"
 
     - name: Copy Grafana dashboard configuration
       copy:
         src: grafana/dashboards/
-        dest: /opt/commitflow/grafana/dashboards/
+        dest: "{{ project_dir }}/grafana/dashboards/"
         mode: "0444"
     
     - name: Create Grafana datasource (Postgres)
       template:
         src: grafana/datasources/postgres.yml.j2
-        dest: /opt/commitflow/grafana/datasources/postgres.yml
+        dest: "{{ project_dir }}/grafana/datasources/postgres.yml"
         mode: "0444"
 
     - name: Create Docker Compose file
       template:
         src: docker-compose.yml.j2
-        dest: /opt/commitflow/docker-compose.yml
+        dest: "{{ project_dir }}/docker-compose.yml"
         mode: "0444"
+
+    - name: Get ECR login password
+      command:
+        argv:
+          - aws
+          - ecr
+          - get-login-password
+          - --region
+          - eu-central-1
+      register: ecr_password
+      changed_when: false
+      no_log: true
+
+    - name: Log in to Amazon ECR
+      community.docker.docker_login:
+        registry_url: "{{ ecr_registry }}"
+        username: AWS
+        password: "{{ ecr_password.stdout }}"
+      no_log: true
+
+    - name: Start Docker Compose services
+      community.docker.docker_compose_v2:
+        project_src: "{{ project_dir }}"
+        pull: always
+        state: present

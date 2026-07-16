@@ -1,3 +1,3 @@
 #!/bin/bash -xeu
 
-ansible-playbook -i ./hosts ./playbook.yml
+ansible-playbook -i ./ansible-inventory.yml ./ansible-playbook.yml

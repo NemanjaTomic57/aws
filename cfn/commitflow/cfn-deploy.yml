@@ -115,6 +115,7 @@ Resources:
       SecurityGroupIds: [!Ref CommitFlowSecurityGroup]
       SubnetId: !Ref PublicSubnet
       KeyName: !Ref KeyPair
+      IamInstanceProfile: EC2CommitFlowRole
       Tags:
         - Key: Name
           Value: CommitFlow

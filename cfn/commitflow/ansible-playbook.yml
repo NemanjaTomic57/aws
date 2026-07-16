@@ -1,30 +1,47 @@
 ---
-- name: Install Go
+- name: Test ansible-vault
   hosts: all
-  vars:
-    go_version: 1.26.3
-    go_checksum: 2b2cfc7148493da5e73981bffbf3353af381d5f93e789c82c79aff64962eb556
+  vars_files:
+    - ./vars/vars.yml
+    - ./vars/vault.yml
 
   tasks:
-    - name: Download Go
-      ansible.builtin.get_url:
-        url: "https://go.dev/dl/go{{ go_version }}.linux-amd64.tar.gz"
-        dest: /tmp/go.tar.gz
-        mode: "0644"
-        checksum: "sha256:{{ go_checksum }}"
 
-    - name: Extract Go
+    - name: Create CommitFlow directories
       become: true
-      ansible.builtin.unarchive:
-        src: /tmp/go.tar.gz
-        dest: /usr/local
-        remote_src: true
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: admin
+        group: admin
+        mode: "0755"
+      loop:
+        - /opt/commitflow
+        - /opt/commitflow/postgres
+        - /opt/commitflow/grafana
+        - /opt/commitflow/grafana/dashboards
+        - /opt/commitflow/grafana/datasources
 
-    - name: Add Go to PATH
-      become: true
-      ansible.builtin.copy:
-        dest: /etc/profile.d/go.sh
-        content: |
-          export PATH=$PATH:/usr/local/go/bin
-          export PATH=$PATH:/home/vagrant/go/bin
-        mode: "0555"
+    - name: Copy Postgres configuration
+      copy:
+        src: postgres/init.sql
+        dest: /opt/commitflow/postgres/init.sql
+        mode: "0444"
+
+    - name: Copy Grafana dashboard configuration
+      copy:
+        src: grafana/dashboards/
+        dest: /opt/commitflow/grafana/dashboards/
+        mode: "0444"
+    
+    - name: Create Grafana datasource (Postgres)
+      template:
+        src: grafana/datasources/postgres.yml.j2
+        dest: /opt/commitflow/grafana/datasources/postgres.yml
+        mode: "0444"
+
+    - name: Create Docker Compose file
+      template:
+        src: docker-compose.yml.j2
+        dest: /opt/commitflow/docker-compose.yml
+        mode: "0444"

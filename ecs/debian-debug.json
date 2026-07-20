@@ -1,0 +1,36 @@
+{
+  "family": "debian-debug",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "runtimePlatform": {
+    "operatingSystemFamily": "LINUX",
+    "cpuArchitecture": "X86_64"
+  },
+  "executionRoleArn": "arn:aws:iam::761018874759:role/ECSCommitFlowTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::761018874759:role/ECSCommitFlowTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "debian",
+      "image": "debian:bookworm-slim",
+      "essential": true,
+      "command": [
+        "bash",
+        "-c",
+        "apt-get update && apt-get install -y iputils-ping dnsutils netcat-openbsd curl procps && sleep infinity"
+      ],
+      "linuxParameters": {
+        "initProcessEnabled": true
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/debian-debug",
+          "awslogs-region": "eu-central-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

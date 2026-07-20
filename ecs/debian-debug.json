@@ -13,7 +13,7 @@
   "containerDefinitions": [
     {
       "name": "debian",
-      "image": "debian:bookworm-slim",
+      "image": "761018874759.dkr.ecr.eu-central-1.amazonaws.com/kafka:4.3.1",
       "essential": true,
       "command": [
         "bash",

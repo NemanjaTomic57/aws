@@ -180,7 +180,7 @@ resource "aws_vpc_security_group_ingress_rule" "kafka_allow_kafka" {
 
 resource "aws_vpc_security_group_egress_rule" "kafka_allow_http" {
   security_group_id = aws_security_group.kafka.id
-  description       = "Allow outbound HTTP traffic to NAT instances"
+  description       = "Allow outbound HTTP traffic from NAT instances"
 
   cidr_ipv4   = "0.0.0.0/0"
   from_port   = 80
@@ -190,7 +190,7 @@ resource "aws_vpc_security_group_egress_rule" "kafka_allow_http" {
 
 resource "aws_vpc_security_group_egress_rule" "kafka_allow_https" {
   security_group_id = aws_security_group.kafka.id
-  description       = "Allow outbound HTTPS traffic to NAT instances"
+  description       = "Allow outbound HTTPS traffic from NAT instances"
 
   cidr_ipv4   = "0.0.0.0/0"
   from_port   = 443

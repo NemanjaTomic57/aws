@@ -22,20 +22,6 @@ resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.kubernetes.id
 }
 
-resource "aws_route_table" "rt_public_sn" {
-  vpc_id = aws_vpc.kubernetes.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.igw.id
-  }
-}
-
-resource "aws_route_table_association" "rt_association_public_sn" {
-  route_table_id = aws_route_table.rt_public_sn.id
-  subnet_id      = aws_subnet.public.id
-}
-
 ##############################################
 # NAT Gateway
 ##############################################
@@ -48,6 +34,23 @@ resource "aws_nat_gateway" "natgw" {
   allocation_id = aws_eip.eip.id
 
   depends_on = [aws_eip.eip]
+}
+
+##############################################
+# Route Tables
+##############################################
+resource "aws_route_table" "rt_public_sn" {
+  vpc_id = aws_vpc.kubernetes.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.igw.id
+  }
+}
+
+resource "aws_route_table_association" "rt_association_public_sn" {
+  route_table_id = aws_route_table.rt_public_sn.id
+  subnet_id      = aws_subnet.public.id
 }
 
 resource "aws_route_table" "rt_private_sn" {

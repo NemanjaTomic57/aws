@@ -1,0 +1,126 @@
+---
+- name: Install Kafka and add to PATH
+  hosts: kafka
+  become: true
+  vars:
+    # Download variables
+    kafka_url: "https://downloads.apache.org/kafka/4.3.1/kafka_2.13-4.3.1.tgz"
+    kafka_archive: "/tmp/kafka.tgz"
+
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install dependencies
+      ansible.builtin.apt:
+        name:
+          - openjdk-21-jdk
+          - unzip
+          - tar
+          - wget
+          - rsync
+          - net-tools
+          - jq
+        state: present
+        update_cache: true
+
+    - name: Create Kafka directory
+      ansible.builtin.file:
+        path: "{{ kafka }}"
+        state: directory
+        mode: "0755"
+        owner: admin
+        group: admin
+
+    - name: Extract Kafka archive
+      ansible.builtin.unarchive:
+        src: "{{ kafka_url }}"
+        dest: "{{ kafka }}"
+        remote_src: true
+        mode: "0755"
+        owner: admin
+        group: admin
+        creates: "{{ kafka_bin }}"
+        extra_opts:
+          - --strip-components=1
+
+    - name: Add Kafka to PATH
+      ansible.builtin.copy:
+        dest: /etc/profile.d/kafka.sh
+        content: |
+          export PATH={{ kafka_bin }}:$PATH
+        mode: "0755"
+
+
+- name: Configure Kafka brokers
+  gather_facts: false
+  hosts: kafka
+
+  tasks:
+    - name: Create Kafka directory
+      ansible.builtin.file:
+        path: "{{ kafka_config }}"
+        state: directory
+        mode: "0755"
+        owner: admin
+        group: admin
+
+    - name: Copy broker configuration
+      template:
+        src: ./templates/server.properties.j2
+        dest: "{{ kafka_config_server }}"
+        mode: "0644"
+
+    - name: Configure first broker
+      shell: >
+        {{ kafka_bin }}/kafka-storage.sh format
+        --cluster-id {{ kafka_cluster_uuid }}
+        --config {{ kafka_config_server }}
+        --standalone
+      when: inventory_hostname == groups['kafka'][0]
+      args:
+        creates: "{{ kafka_logs }}/meta.properties"
+
+    - name: Configure other two Kafka nodes
+      shell: >
+        {{ kafka_bin }}/kafka-storage.sh format
+        --cluster-id {{ kafka_cluster_uuid }}
+        --config {{ kafka_config_server }}
+        --no-initial-controllers
+      when: inventory_hostname != groups['kafka'][0]
+      args:
+        creates: "{{ kafka_logs }}/meta.properties"
+
+    - name: Start the Kafka servers
+      shell: >
+        {{ kafka_bin }}/kafka-server-start.sh -daemon {{ kafka_config_server }}
+      changed_when: true
+
+    - name: Wait for Kafka controller listener to be ready
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: 9093
+        delay: 5
+        timeout: 10
+
+    - name: Get quorum status
+      shell: |
+        set -o pipefail
+        {{ kafka_bin }}/kafka-metadata-quorum.sh \
+        --bootstrap-server {{ hostvars[groups['kafka'][0]].ansible_host }}:9092 \
+        describe --status | grep "CurrentVoters"
+      changed_when: false
+      register: quorum_status
+
+    - name: Reigster node-2 and node-3 as controllers
+      shell: >
+        {{ kafka_bin }}/kafka-metadata-quorum.sh
+        --command-config {{ kafka_config_server }}
+        --bootstrap-server {{ hostvars[groups['kafka'][0]].ansible_host }}:9092
+        add-controller
+      changed_when: true
+      when:
+        - inventory_hostname != groups['kafka'][0]
+        - ansible_host not in quorum_status.stdout

@@ -1,4 +1,10 @@
 terraform {
+  backend "s3" {
+    bucket = "terraform-761018874759"
+    key    = "aws/vpc/kafka.tfstate"
+    region = "eu-central-1"
+  }
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"

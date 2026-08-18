@@ -1,21 +1,12 @@
 output "nat_public_ips" {
-  value = {
-    for name, instance in aws_instance.nat :
-    name => instance.public_ip
-  }
+  value = module.ec2.nat_public_ips
 }
 
 output "kafka_private_ips" {
-  value = {
-    for name, instance in aws_instance.kafka :
-    name => instance.private_ip
-  }
+  value = module.ec2.kafka_private_ips
 }
 
 output "kafka_bootstrap_server" {
-  value = join(",", [
-    for _, instance in aws_instance.kafka :
-    "${instance.private_ip}:9092"
-  ])
+  value = module.ec2.kafka_bootstrap_server
 }
 

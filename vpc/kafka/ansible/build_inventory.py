@@ -4,8 +4,8 @@ import subprocess
 import yaml
 
 # Output names for Terraform output
-NAT_OUTPUT_NAME = "nat_public_ips"
-KAFKA_OUTPUT_NAME = "kafka_private_ips"
+TF_OUTPUT_NAT_PUBLIC_IPS = "nat_public_ips"
+TF_OUTPUT_KAFKA_PRIVATE_IPS = "kafka_private_ips"
 
 # Default SSH user used by Ansible to connect to all hosts.
 BASTION_USER = "ec2-user"
@@ -23,68 +23,64 @@ def terraform_output():
     return json.loads(result.stdout)
 
 
-def get_value(state, key):
-    value = state[key]["value"]
-
-    # Return primitive string outputs directly.
-    if isinstance(value, str):
-        return value
-
-    # Convert map/object values into a list.
-    values = []
-
-    for item in value.values():
-        values.append(item)
-
-    return values
-
-
 def build_inventory(tf):
-    bastion_ip = next(iter(tf[NAT_OUTPUT_NAME]["value"].values()))
-    kafka_private_ips = tf[KAFKA_OUTPUT_NAME]["value"]
+    bastion_ip = next(iter(tf[TF_OUTPUT_NAT_PUBLIC_IPS]["value"].values()))
+    kafka_private_ips = tf[TF_OUTPUT_KAFKA_PRIVATE_IPS]["value"]
 
     inventory = {
         "all": {
             "vars": {
-                "ansible_user": KAFKA_USER,
                 "ansible_ssh_private_key_file": "~/.ssh/aws.pem",
-
-                # Route all SSH connections through the bastion host.
-                "ansible_ssh_common_args": (
-                    "-o StrictHostKeyChecking=no "
-                    "-o ProxyCommand=\"ssh "
-                    "-i ~/.ssh/aws.pem "
-                    "-o StrictHostKeyChecking=no "
-                    f"-W %h:%p {BASTION_USER}@{bastion_ip}\""
-                ),
-
-                "kafka": "/opt/kafka",
-                "kafka_logs": "{{ kafka }}/logs",
-                "kafka_bin": "{{ kafka }}/bin",
-                "kafka_config": "{{ kafka }}/config",
-                "kafka_config_server": "{{ kafka_config }}/server.properties",
-                "kafka_cluster_uuid": "9QRITYyyS2qeAIfDgxB3OA"
             },
             "children": {
                 "kafka": {
+                    "vars": {
+                        "ansible_user": KAFKA_USER,
+                        # Route all SSH connections through the bastion host.
+                        "ansible_ssh_common_args": (
+                            "-o StrictHostKeyChecking=no "
+                            "-o ProxyCommand=\"ssh "
+                            "-i ~/.ssh/aws.pem "
+                            "-o StrictHostKeyChecking=no "
+                            f"-W %h:%p {BASTION_USER}@{bastion_ip}\""
+                        ),
+
+                        "kafka": "/opt/kafka",
+                        "kafka_logs": "{{ kafka }}/logs",
+                        "kafka_bin": "{{ kafka }}/bin",
+                        "kafka_config": "{{ kafka }}/config",
+                        "kafka_config_server": "{{ kafka_config }}/server.properties",
+                        "kafka_cluster_uuid": "9QRITYyyS2qeAIfDgxB3OA"
+                        },
                     "hosts": {}
-                }
+                },
             },
         }
     }
 
+    print()
+    print('---------------------------------------')
+    print('SSH command for bastion:')
+    ssh_command_bastion(bastion_ip)
+
+    print()
+    print('---------------------------------------')
+    print('SSH command for Kafka nodes:')
     # Add every Kafka node to the inventory.
-    for name, ip in kafka_private_ips.items():
-        inventory["all"]["children"]["kafka"]["hosts"][f"kafka-{int(name) + 1}"] = {
+    for idx, (_, ip) in enumerate(kafka_private_ips.items(), start=1):
+        inventory["all"]["children"]["kafka"]["hosts"][f"kafka-{idx}"] = {
             "ansible_host": ip
         }
-        ssh_command(bastion_ip, ip)
-
+        ssh_command_kafka(bastion_ip, ip)
 
     return inventory
 
 
-def ssh_command(bastion: str, kafka_node: str) -> None:
+def ssh_command_bastion(bastion: str) -> None:
+    print(f'ssh -i ~/.ssh/aws.pem {BASTION_USER}@{bastion}')
+
+
+def ssh_command_kafka(bastion: str, kafka_node: str) -> None:
     print(f'ssh -i ~/.ssh/aws.pem -o ProxyCommand="ssh -i ~/.ssh/aws.pem -W %h:%p {BASTION_USER}@{bastion}" {KAFKA_USER}@{kafka_node}')
 
 
@@ -109,5 +105,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 

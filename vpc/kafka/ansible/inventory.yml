@@ -1,21 +1,18 @@
 all:
   vars:
-    ansible_user: admin
     ansible_ssh_private_key_file: ~/.ssh/aws.pem
-    ansible_ssh_common_args: -o StrictHostKeyChecking=no -o ProxyCommand="ssh -i ~/.ssh/aws.pem
-      -o StrictHostKeyChecking=no -W %h:%p ec2-user@3.121.78.200"
-    kafka: /opt/kafka
-    kafka_logs: '{{ kafka }}/logs'
-    kafka_bin: '{{ kafka }}/bin'
-    kafka_config: '{{ kafka }}/config'
-    kafka_config_server: '{{ kafka_config }}/server.properties'
-    kafka_cluster_uuid: 9QRITYyyS2qeAIfDgxB3OA
   children:
     kafka:
+      vars:
+        ansible_user: admin
+        ansible_ssh_common_args: -o StrictHostKeyChecking=no -o ProxyCommand="ssh
+          -i ~/.ssh/aws.pem -o StrictHostKeyChecking=no -W %h:%p ec2-user@3.66.171.28"
+        kafka: /opt/kafka
+        kafka_logs: '{{ kafka }}/logs'
+        kafka_bin: '{{ kafka }}/bin'
+        kafka_config: '{{ kafka }}/config'
+        kafka_config_server: '{{ kafka_config }}/server.properties'
+        kafka_cluster_uuid: 9QRITYyyS2qeAIfDgxB3OA
       hosts:
         kafka-1:
-          ansible_host: 192.168.32.40
-        kafka-2:
-          ansible_host: 192.168.33.173
-        kafka-3:
-          ansible_host: 192.168.34.197
+          ansible_host: 192.168.32.254

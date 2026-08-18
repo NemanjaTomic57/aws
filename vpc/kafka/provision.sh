@@ -8,5 +8,5 @@ terraform apply -auto-approve
 cd ./ansible
 
 python build_inventory.py
-ansible-playbook -i inventory.yml playbook.yml
+ansible-playbook -i inventory.yml playbook.yml -T 10
 

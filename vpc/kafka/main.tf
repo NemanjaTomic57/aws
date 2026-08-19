@@ -63,8 +63,8 @@ module "ec2" {
   nat_sg          = module.security_groups.nat_sg
   kafka_sg        = module.security_groups.kafka_sg
   ami_id = {
-    nat   = "ami-0d48b1c648cd339e0",
-    kafka = "ami-0723bff07f72bb394"
+    nat   = "ami-07b68a9bcf82c54eb",
+    kafka = "ami-0007785b133e034f0"
   }
   instance_type = {
     nat   = "t4g.nano"

@@ -16,7 +16,7 @@
     - name: Install dependencies
       ansible.builtin.apt:
         name:
-          - openjdk-21-jdk
+          - default-jdk
           - unzip
           - tar
           - wget
@@ -73,6 +73,10 @@
         dest: "{{ kafka_config_server }}"
         mode: "0644"
 
+    ##############################################################
+    # Storage
+    ##############################################################
+
     - name: Configure first broker
       shell: >
         {{ kafka_bin }}/kafka-storage.sh format
@@ -93,34 +97,128 @@
       args:
         creates: "{{ kafka_logs }}/meta.properties"
 
-    - name: Start the Kafka servers
-      shell: >
-        {{ kafka_bin }}/kafka-server-start.sh -daemon {{ kafka_config_server }}
-      changed_when: true
+    ##############################################################
+    # Start first Kafka node
+    ##############################################################
 
-    - name: Wait for Kafka controller listener to be ready
+    - name: Check if Kafka is running
+      command:
+        argv:
+          - "{{ kafka_bin }}/kafka-broker-api-versions.sh"
+          - "--bootstrap-server"
+          - "{{ ansible_host }}:9092"
+      register: kafka_broker_api_versions
+      changed_when: false
+      failed_when: false
+
+    - name: Start initial Kafka controller
+      command:
+        argv:
+          - "{{ kafka_bin }}/kafka-server-start.sh"
+          - -daemon
+          - "{{ kafka_config_server }}"
+      when:
+        - inventory_hostname == groups['kafka'][0]
+        - kafka_broker_api_versions.rc == 1
+
+    - name: Wait for initial controller listener
       wait_for:
         host: "{{ ansible_host }}"
         port: 9093
-        delay: 5
-        timeout: 10
+        timeout: 120
+      when: inventory_hostname == groups['kafka'][0]
 
-    - name: Get quorum status
-      shell: |
-        set -o pipefail
-        {{ kafka_bin }}/kafka-metadata-quorum.sh \
-        --bootstrap-server {{ hostvars[groups['kafka'][0]].ansible_host }}:9092 \
-        describe --status | grep "CurrentVoters"
+    - name: Wait until initial Kafka broker responds
+      command:
+        argv:
+          - "{{ kafka_bin }}/kafka-metadata-quorum.sh"
+          - "--bootstrap-server"
+          - "{{ hostvars[groups['kafka'][0]].ansible_host }}:9092"
+          - "describe"
+          - "--status"
+      register: kafka_quorum
+      until: kafka_quorum.rc == 0
+      retries: 30
+      delay: 2
       changed_when: false
-      register: quorum_status
+      when: inventory_hostname == groups['kafka'][0]
 
-    - name: Reigster node-2 and node-3 as controllers
-      shell: >
-        {{ kafka_bin }}/kafka-metadata-quorum.sh
-        --command-config {{ kafka_config_server }}
-        --bootstrap-server {{ hostvars[groups['kafka'][0]].ansible_host }}:9092
-        add-controller
-      changed_when: true
+    ##############################################################
+    # Start additional Kafka nodes
+    ##############################################################
+
+    - name: Start additional Kafka nodes
+      ansible.builtin.command:
+        argv:
+          - "{{ kafka_bin }}/kafka-server-start.sh"
+          - "-daemon"
+          - "{{ kafka_config_server }}"
       when:
         - inventory_hostname != groups['kafka'][0]
-        - ansible_host not in quorum_status.stdout
+        - kafka_broker_api_versions.rc == 1
+
+    - name: Wait for controller listener
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: 9093
+        timeout: 120
+
+    - name: Wait until additional Kafka nodes respond
+      command:
+        argv:
+          - "{{ kafka_bin }}/kafka-metadata-quorum.sh"
+          - "--bootstrap-server"
+          - "{{ ansible_host }}:9092"
+          - "describe"
+          - "--status"
+      register: kafka_quorum
+      until: kafka_quorum.rc == 0
+      retries: 30
+      delay: 2
+      changed_when: false
+      when: inventory_hostname != groups['kafka'][0]
+
+    ##############################################################
+    # Register additional controllers
+    ##############################################################
+
+    - name: Get CurrentVoters of Kafka cluster
+      shell: >
+        {{ kafka_bin }}/kafka-metadata-quorum.sh
+        --bootstrap-server {{ ansible_host }}:9092
+        describe --status | grep CurrentVoters
+      register: kafka_quorum_current_voters
+      changed_when: false
+
+    - name: Register additional controllers
+      command:
+        argv:
+          - "{{ kafka_bin }}/kafka-metadata-quorum.sh"
+          - "--command-config"
+          - "{{ kafka_config_server }}"
+          - "--bootstrap-server"
+          - "{{ hostvars[groups['kafka'][0]].ansible_host }}:9092"
+          - "add-controller"
+      when: ansible_host not in kafka_quorum_current_voters.stdout
+      throttle: 1
+
+    ##############################################################
+    # Verify quorum
+    ##############################################################
+
+    - name: Get final quorum status
+      ansible.builtin.command:
+        argv:
+          - "{{ kafka_bin }}/kafka-metadata-quorum.sh"
+          - "--bootstrap-server"
+          - "{{ hostvars[groups['kafka'][0]].ansible_host }}:9092"
+          - "describe"
+          - "--status"
+      register: quorum_status
+      changed_when: false
+      run_once: true
+
+    - name: Show quorum
+      debug:
+        var: quorum_status.stdout_lines
+      run_once: true

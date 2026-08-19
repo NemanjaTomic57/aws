@@ -1,3 +1,6 @@
+# Dynamic Ansible inventory
+inventory.yml
+
 # Local .terraform directories
 .terraform/
 

@@ -1,6 +1,6 @@
 #!/bin/bash -xeu
 
-S3_BUCKET="delete-codedeploy-1977"
+S3_BUCKET="s3://delete-codedeploy-1977/website"
 WEB_ROOT="/var/www/html"
 
 rm -rf "${WEB_ROOT}"/*

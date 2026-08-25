@@ -15,7 +15,7 @@ fi
 FUNCTION_NAME=${1%/}
 
 echo "Lambda metadata response:"
-aws lambda invoke --function-name apiGatewayIntegration --payload "$PAYLOAD" output.json | jq
+aws lambda invoke --function-name "${FUNCTION_NAME}" --payload "$PAYLOAD" output.json | jq
 
 echo
 echo "Lambda function response:"

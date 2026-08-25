@@ -1,1 +1,1 @@
-{"statusCode": 200, "body": "\"Hello from Lambda!\"", "event": "{\"Order_id\": \"12345\", \"Amount\": 199.99, \"Item\": \"Wireless Headphones\"}"}
+{"principalId": "me", "policyDocument": {"Version": "2012-10-17", "Statement": [{"Action": "execute-api:Invoke", "Effect": "Allow", "Resource": "test"}]}, "context": {"stringKey": "stringVal", "numberKey": 123, "booleanKey": true, "property": "Hello, World!"}}

@@ -68,7 +68,7 @@ func handleHome(writer http.ResponseWriter, request *http.Request) {
 }
 
 func handleLogin(writer http.ResponseWriter, request *http.Request) {
-	state := "state" // Replace with a secure random string in production
+	state := "secureRandomString" // Replace with a secure random string in production
 	url := oauth2Config.AuthCodeURL(state, oauth2.AccessTypeOffline)
 	http.Redirect(writer, request, url, http.StatusFound)
 }

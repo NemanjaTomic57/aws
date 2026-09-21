@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  VPC with a single public subnet and an ARM64 (Graviton) t4g.micro EC2 instance.
+  The instance runs Nginx (enabled, listening on port 80) and WireGuard (via a
+  templated user-data config with one Interface + one Peer, listening on UDP 51820).
+  Inbound access is restricted by a Security Group to SSH (22) and WireGuard
+  (51820/udp) only. No NAT Gateway is used — the instance gets a public IP
+  directly via an Internet Gateway, so it does not need one.
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: aws
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance.
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    Description: Amazon Linux 2023 ARM64 AMI, resolved automatically via SSM.
+
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.0.1.0/24
+
+  WireGuardVpnCidr:
+    Type: String
+    Default: 10.8.0.0/24
+    Description: Internal VPN address space used inside the WireGuard tunnel (not the VPC CIDR).
+
+Resources:
+
+  ## --- Networking ---
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: wireguard-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: wireguard-igw
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCidr
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: wireguard-public-subnet
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: wireguard-public-rt
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  ## --- Security Group ---
+  ## Only SSH (22) and WireGuard (51820/udp) are open inbound.
+  ## Port 80 (Nginx) is intentionally NOT opened here, per spec: everything
+  ## except 22 and 51820 is blocked.
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH and WireGuard only; block everything else inbound.
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH
+        - IpProtocol: udp
+          FromPort: 51820
+          ToPort: 51820
+          CidrIp: 0.0.0.0/0
+          Description: WireGuard
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound (needed for package installs, updates, VPN traffic)
+      Tags:
+        - Key: Name
+          Value: wireguard-sg
+
+  ## --- Compute ---
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t4g.micro
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref PublicSubnet
+          GroupSet:
+            - !Ref InstanceSecurityGroup
+          AssociatePublicIpAddress: true
+      Tags:
+        - Key: Name
+          Value: wireguard-nginx-instance
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          exec > /var/log/user-data.log 2>&1
+
+          dnf update -y
+
+          ## --- Nginx ---
+          dnf install -y nginx
+          systemctl enable nginx
+          systemctl start nginx
+
+          ## --- WireGuard ---
+          dnf install -y wireguard-tools
+
+          mkdir -p /etc/wireguard
+          chmod 700 /etc/wireguard
+
+          # Generate a server keypair so the template is runnable out of the box.
+          # Replace PrivateKey / the Peer's PublicKey with your own values afterward.
+          SERVER_PRIVATE_KEY=$(wg genkey)
+          SERVER_PUBLIC_KEY=$(echo "$SERVER_PRIVATE_KEY" | wg pubkey)
+          echo "$SERVER_PUBLIC_KEY" > /etc/wireguard/server_public_key.txt
+
+          cat > /etc/wireguard/wg0.conf << EOF
+          [Interface]
+          # Internal VPN address of this server inside the tunnel
+          Address = 10.8.0.1/32
+          ListenPort = 51820
+          PrivateKey = ${!SERVER_PRIVATE_KEY}
+
+          [Peer]
+          PublicKey = Qts5wZwi2NZowFTdJgfe6/OGJjYSD8g4Eur/qa0RoBA=
+          AllowedIPs = 10.8.0.2/32
+          EOF
+
+          chmod 600 /etc/wireguard/wg0.conf
+
+          systemctl enable wg-quick@wg0
+          systemctl start wg-quick@wg0
+
+Outputs:
+  InstanceId:
+    Value: !Ref EC2Instance
+
+  InstancePublicIp:
+    Description: Public IP address of the instance
+    Value: !GetAtt EC2Instance.PublicIp
+
+  SSHCommand:
+    Description: Command to SSH into the instance
+    Value: !Sub "ssh ec2-user@${EC2Instance.PublicIp}"
+
+  ServerWireGuardPublicKeyLocation:
+    Description: Where to find the auto-generated server public key on the instance
+    Value: /etc/wireguard/server_public_key.txt

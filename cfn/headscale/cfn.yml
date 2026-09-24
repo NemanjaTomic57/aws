@@ -1,0 +1,190 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  VPC with one public subnet, two security groups (one outbound-only + SSH,
+  one HTTP/HTTPS + SSH), and two Debian EC2 instances running Nginx.
+
+Parameters:
+  DebianAmiId:
+    Type: AWS::EC2::Image::Id
+    Default: ami-0564b59b09e3bfeab
+    Description: AMI ID for a Debian instance in your region (e.g. from the AWS Console
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: aws
+    Description: Name of an existing EC2 KeyPair to enable SSH access.
+
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.0.1.0/24
+
+  SshAllowedCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR range allowed to SSH in. Restrict this to your own IP for real use.
+
+  InstanceType:
+    Type: String
+    Default: t4g.micro
+
+Resources:
+
+  ### --- Networking ---
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: headscale-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: headscale-igw
+
+  IGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCidr
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: headscale-public-subnet
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: headscale-public-rt
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  ### --- Security Groups ---
+
+  # Restrictive SG: no inbound except SSH, all outbound allowed
+  # (so the instance can still reach the internet for updates/downloads)
+  NginxSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Outbound-only security group, SSH inbound only
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SshAllowedCidr
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: nginx-sg
+
+  # Headscale: HTTP/HTTPS inbound + outbound, plus SSH inbound
+  HeadscaleSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allows HTTP/HTTPS in and out, plus SSH inbound
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SshAllowedCidr
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: headscale-sg
+
+  ### --- EC2 Instances ---
+
+  NginxInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref DebianAmiId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref NginxSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt-get update -y
+          apt-get install -y nginx
+          systemctl enable nginx
+          systemctl start nginx
+      Tags:
+        - Key: Name
+          Value: nginx-instance
+
+  HeadscaleInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref DebianAmiId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref HeadscaleSecurityGroup
+      Tags:
+        - Key: Name
+          Value: headscale-instance
+
+Outputs:
+  NginxPublicIp:
+    Value: !GetAtt NginxInstance.PublicIp
+  NginxSshCommand:
+    Description: SSH command for the headscale instance
+    Value: !Sub "ssh admin@${NginxInstance.PublicIp}"
+  HeadscalePublicIp:
+    Value: !GetAtt HeadscaleInstance.PublicIp
+  HeadscaleSshCommand:
+    Description: SSH command for the headscale instance
+    Value: !Sub "ssh admin@${HeadscaleInstance.PublicIp}"
